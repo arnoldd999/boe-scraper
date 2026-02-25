@@ -38,11 +38,11 @@ def apply_env_config():
     CONFIG["OUTPUT_FILE"] = os.getenv("LINKS_OUTPUT_FILE", CONFIG["OUTPUT_FILE"])
     CONFIG["LOCALIDADES"] = os.getenv("BOE_LOCALIDAD", CONFIG["LOCALIDAD"]).split(',')
     CONFIG["PROVINCIAS"] = os.getenv("BOE_PROVINCIA", CONFIG["PROVINCIA"]).split(',')
-    
+
     # Acepta una lista de estados y tipos de bien separados por comas
     estados_str = os.getenv("BOE_ESTADO", CONFIG["ESTADO"])
     CONFIG["ESTADOS"] = [s.strip() for s in estados_str.split(',') if s.strip()]
-    
+
     tipos_bien_str = os.getenv("BOE_TIPO_BIEN", CONFIG["TIPO_BIEN"])
     CONFIG["TIPOS_BIEN"] = [t.strip().upper() for t in tipos_bien_str.split(',') if t.strip()]
 
@@ -67,14 +67,14 @@ async def recolectar_subastas_paginadas(page, tipo_bien, estado, provincia, loca
 
     # 1. Seleccionar TIPO DE BIEN (configurable)
     tipo_bien_map = {
-        "I": ("#idTipoBienI", "Inmuebles"),
-        "V": ("#idTipoBienV", "Vehículos"),
+        "I": ("idTipoBienI", "Inmuebles"),
+        "V": ("idTipoBienV", "Vehículos"),
         # Se podrían añadir más si hiciera falta
     }
     if tipo_bien in tipo_bien_map:
-        selector, texto = tipo_bien_map[tipo_bien]
+        input_id, texto = tipo_bien_map[tipo_bien]
         logger.info(f"⏳ Seleccionando tipo de bien: {texto}...")
-        await page.check(selector, force=True)
+        await page.locator(f'label[for="{input_id}"]').click()
         logger.info(f"✅ Radio button '{texto}' marcado.")
 
     # 2. Rellenar LOCALIDAD (Campo de texto)
@@ -88,7 +88,8 @@ async def recolectar_subastas_paginadas(page, tipo_bien, estado, provincia, loca
     # 4. Seleccionar ESTADO DE LA SUBASTA (Radio button)
     if estado:
         logger.info(f"⏳ Seleccionando estado de subasta (Código {estado})...")
-        await page.check(f'input[name="ESTADO"][value="{estado}"]', force=True)
+        label_selector = f'label[for="idEstado{estado}"]'
+        await page.locator(label_selector).click()
         logger.info("✅ Estado de la subasta seleccionado.")
 
     # Click en Buscar esperando navegación
@@ -139,7 +140,7 @@ async def recolectar_subastas_paginadas(page, tipo_bien, estado, provincia, loca
                 vistos_global.add(url_completa)
 
                 obj = {
-                    "url": url_completa,                    "provincia": provincia,
+                    "url": url_completa, "provincia": provincia,
                     "localidad": localidad,
                     "tipo_bien": tipo_bien,
                 }
@@ -173,7 +174,7 @@ async def main():
     if not CONFIG.get("APPEND_OUTPUT", False):
         logger.info(f"Limpiando fichero de salida: {output_file}")
         with open(output_file, "w", encoding="utf-8") as f:
-            f.write("") # Truncate file
+            f.write("")  # Truncate file
 
     vistos_global = set()
 
@@ -188,11 +189,14 @@ async def main():
             for localidad in CONFIG.get("LOCALIDADES", []):
                 for tipo_bien in CONFIG["TIPOS_BIEN"]:
                     for estado in CONFIG["ESTADOS"]:
-                        logger.info(f"--- Iniciando búsqueda para: Provincia={provincia}, Localidad={localidad}, Tipo={tipo_bien}, Estado={estado} ---")
-                        await recolectar_subastas_paginadas(page, tipo_bien, estado, provincia, localidad, vistos_global, output_file)
+                        logger.info(
+                            f"--- Iniciando búsqueda para: Provincia={provincia}, Localidad={localidad}, Tipo={tipo_bien}, Estado={estado} ---")
+                        await recolectar_subastas_paginadas(page, tipo_bien, estado, provincia, localidad,
+                                                            vistos_global, output_file)
 
         await browser.close()
         logger.info("🛑 Navegador cerrado.")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
