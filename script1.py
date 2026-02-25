@@ -74,6 +74,7 @@ async def recolectar_subastas_paginadas(page, tipo_bien, estado, provincia, loca
     if tipo_bien in tipo_bien_map:
         input_id, texto = tipo_bien_map[tipo_bien]
         logger.info(f"⏳ Seleccionando tipo de bien: {texto}...")
+        # Hacemos clic en la etiqueta (label) en lugar del input oculto, es más robusto
         await page.locator(f'label[for="{input_id}"]').click()
         logger.info(f"✅ Radio button '{texto}' marcado.")
 
@@ -88,6 +89,7 @@ async def recolectar_subastas_paginadas(page, tipo_bien, estado, provincia, loca
     # 4. Seleccionar ESTADO DE LA SUBASTA (Radio button)
     if estado:
         logger.info(f"⏳ Seleccionando estado de subasta (Código {estado})...")
+        # Hacemos clic en la etiqueta (label) que corresponde al input, es más fiable
         label_selector = f'label[for="idEstado{estado}"]'
         await page.locator(label_selector).click()
         logger.info("✅ Estado de la subasta seleccionado.")
