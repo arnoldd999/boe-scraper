@@ -16,12 +16,12 @@ jobs:
     env:
       # --- FILTROS PARA LA RECOPILACIÓN DIARIA ---
       # PU=Próx. apertura, EJ=Celebrándose. Buscamos subastas activas para refrescar su estado.
-      BOE_ESTADO: "PU,EJ"
+      BOE_ESTADO: "EJ,PU"
       # I=Inmuebles, V=Vehículos
       BOE_TIPO_BIEN: "I,V"
       # Provincia y Localidad (ajusta según necesites)
       BOE_PROVINCIA: "12"
-      BOE_LOCALIDAD: "Castellón de la Plana"
+      BOE_LOCALIDAD: "Valencia"
 
       # --- NOMBRES DE FICHEROS INTERMEDIOS ---
       LINKS_OUTPUT_FILE: "links_activos.jsonl"
