@@ -18,7 +18,7 @@ CONFIG = {
     # Filtros de búsqueda
     "LOCALIDAD": "Castellón de la Plana",  # Texto exacto para el campo Localidad
     "PROVINCIA": "12",  # Código 12 = Castellón
-    "ESTADO": "0",  # 0=Cualquiera, 1=Próx. apertura, 3=Celebrándose, etc.
+    "ESTADO": "EJ",  # EJ=Celebrándose, PU=Próx. apertura, etc.
     "TIPO_BIEN": "I",  # I=Inmuebles, V=Vehículos
     # Tiempos de espera (ms)
     "TIMEOUT_ESPERA": 3000,
@@ -88,10 +88,17 @@ async def recolectar_subastas_paginadas(page, tipo_bien, estado, provincia, loca
 
     # 4. Seleccionar ESTADO DE LA SUBASTA (Radio button)
     if estado:
-        logger.info(f"⏳ Seleccionando estado de subasta (Código {estado})...")
-        # Hacemos clic en la etiqueta (label) que corresponde al input, es más fiable
-        label_selector = f'label[for="idEstado{estado}"]'
-        await page.locator(label_selector).click()
+        # Mapeo de estados conocidos (ajustar según se descubran más valores)
+        # PU = Próx. apertura (idEstadoPU)
+        # EJ = Celebrándose (idEstadoEJ) - Asunción basada en el patrón
+        # SU = Suspendida (idEstadoSU) - Asunción
+        # CA = Cancelada (idEstadoCA) - Asunción
+        
+        input_id = f"idEstado{estado}"
+        logger.info(f"⏳ Seleccionando estado de subasta: {estado} (ID: {input_id})...")
+        
+        # Hacemos clic en la etiqueta (label) asociada al input
+        await page.locator(f'label[for="{input_id}"]').click()
         logger.info("✅ Estado de la subasta seleccionado.")
 
     # Click en Buscar esperando navegación

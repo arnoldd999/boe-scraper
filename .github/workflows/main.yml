@@ -15,8 +15,8 @@ jobs:
 
     env:
       # --- FILTROS PARA LA RECOPILACIÓN DIARIA ---
-      # 1=Próx. apertura, 3=Celebrándose. Buscamos subastas activas para refrescar su estado.
-      BOE_ESTADO: "1,3"
+      # PU=Próx. apertura, EJ=Celebrándose. Buscamos subastas activas para refrescar su estado.
+      BOE_ESTADO: "PU,EJ"
       # I=Inmuebles, V=Vehículos
       BOE_TIPO_BIEN: "I,V"
       # Provincia y Localidad (ajusta según necesites)
