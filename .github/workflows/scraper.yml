@@ -1,0 +1,128 @@
+name: BOE Scraper (links + detalle) -> FTP (incremental)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 3 * * *" # diario 03:30 UTC
+
+concurrency:
+  group: boe-scraper
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    env:
+      # Forzamos headless en CI
+      HEADLESS: "1"
+
+      # Archivos (coinciden con tus defaults, pero así queda explícito)
+      OUTPUT_FILE: "links_castellon.jsonl"
+      INPUT_LINKS_JSONL: "links_castellon.jsonl"
+      OUTPUT_DETAIL_JSONL: "subastas_detalle.jsonl"
+
+      # Si quieres parametrizar filtros desde Actions (opcional):
+      # BOE_LOCALIDAD: "Castellón de la Plana"
+      # BOE_PROVINCIA: "12"
+
+      # Asegura que NO hay limit de prueba en producción
+      TEST_LIMIT: "0"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Python deps + Playwright
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Install lftp (for FTP download)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lftp
+
+      - name: Download previous detail JSONL from FTP (if exists)
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASS }}
+          FTP_REMOTE_DIR: ${{ secrets.FTP_REMOTE_DIR }}
+        run: |
+          set -e
+          echo "Attempting to download previous subastas_detalle.jsonl.gz from FTP..."
+          lftp -u "${FTP_USER}","${FTP_PASS}" "${FTP_HOST}" <<EOF
+          set ssl:verify-certificate no
+          set net:max-retries 2
+          set net:timeout 20
+          cd ${FTP_REMOTE_DIR}
+          get -e subastas_detalle.jsonl.gz -o subastas_detalle.jsonl.gz || true
+          bye
+          EOF
+
+          if [ -f subastas_detalle.jsonl.gz ]; then
+            gunzip -c subastas_detalle.jsonl.gz > subastas_detalle.jsonl
+            echo "Previous detail loaded: $(wc -l < subastas_detalle.jsonl) lines"
+          else
+            echo "No previous detail file found on FTP. Starting fresh."
+          fi
+
+      - name: Run script1 (collect links) - overwrites links file
+        run: |
+          python script1.py
+
+      - name: Sanity check links output
+        run: |
+          test -f links_castellon.jsonl
+          wc -l links_castellon.jsonl || true
+          head -n 2 links_castellon.jsonl || true
+
+      - name: Run script2 (scrape details) - incremental append
+        run: |
+          python script2.py
+
+      - name: Sanity check detail output
+        run: |
+          test -f subastas_detalle.jsonl
+          wc -l subastas_detalle.jsonl || true
+          head -n 1 subastas_detalle.jsonl || true
+
+      - name: Compress outputs
+        run: |
+          gzip -c links_castellon.jsonl > links_castellon.jsonl.gz
+          gzip -c subastas_detalle.jsonl > subastas_detalle.jsonl.gz
+          ls -lah *.gz
+
+      - name: Upload artifacts (debug)
+        uses: actions/upload-artifact@v4
+        with:
+          name: boe-jsonl
+          path: |
+            links_castellon.jsonl.gz
+            subastas_detalle.jsonl.gz
+
+      - name: Upload to FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USER }}
+          password: ${{ secrets.FTP_PASS }}
+          local-dir: ./
+          server-dir: ${{ secrets.FTP_REMOTE_DIR }}/
+          include: |
+            links_castellon.jsonl.gz
+            subastas_detalle.jsonl.gz
+          exclude: |
+            **/*
+            !links_castellon.jsonl.gz
+            !subastas_detalle.jsonl.gz
