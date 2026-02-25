@@ -20,7 +20,7 @@ jobs:
       # I=Inmuebles, V=Vehículos
       BOE_TIPO_BIEN: "I,V"
       # Provincia y Localidad (ajusta según necesites)
-      BOE_PROVINCIA: "12"
+      BOE_PROVINCIA: "46"
       BOE_LOCALIDAD: "Valencia"
 
       # --- NOMBRES DE FICHEROS INTERMEDIOS ---
