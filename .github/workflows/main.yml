@@ -30,7 +30,7 @@ jobs:
 
       # --- CONFIGURACIÓN DE EJECUCIÓN ---
       HEADLESS: "1"
-      TEST_LIMIT: "0" # Sin límite en producción
+      TEST_LIMIT: "0"
 
     steps:
       - name: 1. Checkout Code
@@ -61,11 +61,10 @@ jobs:
           DB_PASS: ${{ secrets.DB_PASS }}
           DB_NAME: ${{ secrets.DB_NAME }}
           DB_PORT: ${{ secrets.DB_PORT }}
-        # Este es el nuevo script que debes crear
         run: python importer.py
 
       - name: 6. (Opcional) Upload Artifacts for Debugging
-        if: failure() # Sube los logs y ficheros solo si el job falla
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: scraper-artifacts-on-failure

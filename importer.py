@@ -54,12 +54,16 @@ def get_safe(data: dict, *keys, default=None):
 
 def main():
     try:
+        # Gestionar el puerto de forma segura (por defecto 3306 si no está definido o está vacío)
+        port_env = os.getenv("DB_PORT")
+        db_port = int(port_env) if port_env and port_env.strip() else 3306
+
         db_connection = mysql.connector.connect(
             host=os.getenv("DB_HOST"),
             user=os.getenv("DB_USER"),
             password=os.getenv("DB_PASS"),
             database=os.getenv("DB_NAME"),
-            port=os.getenv("DB_PORT")
+            port=db_port
         )
         logger.info("✅ Conexión a la base de datos establecida.")
     except mysql.connector.Error as err:
@@ -100,13 +104,12 @@ def main():
 
                 sql_subasta = """
                     INSERT INTO subastas (
-                        identificador, url, titulo, tipo_subasta, estado_subasta,
+                        identificador, url, tipo_subasta, estado_subasta,
                         cuenta_expediente, fecha_inicio, fecha_conclusion, cantidad_reclamada,
-                        numero_lotes, anuncio_boe, scraped_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        numero_lotes, anuncio_boe
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON DUPLICATE KEY UPDATE
                         url = VALUES(url),
-                        titulo = VALUES(titulo),
                         tipo_subasta = VALUES(tipo_subasta),
                         estado_subasta = VALUES(estado_subasta),
                         fecha_inicio = VALUES(fecha_inicio),
@@ -114,14 +117,12 @@ def main():
                         cantidad_reclamada = VALUES(cantidad_reclamada),
                         numero_lotes = VALUES(numero_lotes),
                         anuncio_boe = VALUES(anuncio_boe),
-                        scraped_at = VALUES(scraped_at),
                         updated_at = CURRENT_TIMESTAMP;
                 """
                 
                 values_subasta = (
                     identificador,
                     get_safe(data, "url"),
-                    get_safe(data, "titulo"),
                     get_safe(info_gen, "Tipo de subasta"),
                     estado_subasta,
                     get_safe(info_gen, "Cuenta expediente"),
@@ -129,8 +130,7 @@ def main():
                     parse_datetime(get_safe(info_gen, "Fecha de conclusión")),
                     parse_money(get_safe(info_gen, "Cantidad reclamada")),
                     int(get_safe(info_gen, "Lotes", default='0').replace('Sin lotes', '0')),
-                    get_safe(info_gen, "Anuncio BOE"),
-                    get_safe(data, "scraped_at")
+                    get_safe(info_gen, "Anuncio BOE")
                 )
                 
                 cursor.execute(sql_subasta, values_subasta)
