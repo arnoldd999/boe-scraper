@@ -1,1 +1,0 @@
-cd /home/TU_USUARIO/scripts && DB_HOST=localhost DB_USER=ysqytyxn_usrsubastas DB_PASS="TU_CONTRASEÑA" DB_NAME=ysqytyxn_dbsubastas OUTPUT_DETAIL_JSONL=/home/TU_USUARIO/public_ftp/subastas/subastas_detalle.jsonl.gz /RUTA/QUE/COPIASTE/DEL/PYTHON importer.py
