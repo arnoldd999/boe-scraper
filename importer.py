@@ -1,5 +1,6 @@
 import os
 import json
+import gzip
 import re
 import logging
 from decimal import Decimal, InvalidOperation
@@ -80,7 +81,15 @@ def main():
     
     logger.info(f"Iniciando importación desde '{jsonl_file}'...")
 
-    with open(jsonl_file, "r", encoding="utf-8") as f:
+    # Detectar si es GZIP o texto plano
+    if jsonl_file.endswith(".gz"):
+        open_func = gzip.open
+        mode = "rt"
+    else:
+        open_func = open
+        mode = "r"
+
+    with open_func(jsonl_file, mode, encoding="utf-8") as f:
         for line in f:
             try:
                 data = json.loads(line)

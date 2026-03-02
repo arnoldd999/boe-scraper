@@ -54,14 +54,29 @@ jobs:
       - name: 4. Run Detail Scraper (script2.py)
         run: python script2.py
 
-      - name: 5. Run Database Importer (importer.py)
-        env:
-          DB_HOST: ${{ secrets.DB_HOST }}
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASS: ${{ secrets.DB_PASS }}
-          DB_NAME: ${{ secrets.DB_NAME }}
-          DB_PORT: ${{ secrets.DB_PORT }}
-        run: python importer.py
+      - name: 5. Compress results
+        run: gzip -c subastas_detalle.jsonl > subastas_detalle.jsonl.gz
+
+      - name: 6. Upload JSONL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          source: "subastas_detalle.jsonl.gz"
+          target: "/home/${{ secrets.SSH_USER }}/public_ftp/subastas/"
+
+      - name: 7. Run Importer via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            cd /home/${{ secrets.SSH_USER }}/scripts
+            DB_HOST=localhost DB_USER=ysqytyxn_usrsubastas DB_PASS="${{ secrets.DB_PASS }}" DB_NAME=ysqytyxn_dbsubastas OUTPUT_DETAIL_JSONL=/home/${{ secrets.SSH_USER }}/public_ftp/subastas/subastas_detalle.jsonl.gz /home/${{ secrets.SSH_USER }}/virtualenv/scripts/3.11/bin/python importer.py
 
       - name: 6. (Opcional) Upload Artifacts for Debugging
         if: failure()
