@@ -76,7 +76,7 @@ jobs:
           port: ${{ secrets.SSH_PORT }}
           script: |
             cd /home/${{ secrets.SSH_USER }}/scripts
-            DB_HOST=localhost DB_USER=ysqytyxn_usrsubastas DB_PASS="${{ secrets.DB_PASS }}" DB_NAME=ysqytyxn_dbsubastas OUTPUT_DETAIL_JSONL=/home/${{ secrets.SSH_USER }}/public_ftp/subastas/subastas_detalle.jsonl.gz /home/${{ secrets.SSH_USER }}/virtualenv/scripts/3.11/bin/python importer.py
+            DB_HOST=${{ secrets.DB_HOST}} DB_USER={{ secrets.DB_USER}} DB_PASS="${{ secrets.DB_PASS }}" DB_NAME= {{ secrets.DB_NAME }} OUTPUT_DETAIL_JSONL=/home/${{ secrets.SSH_USER }}/public_ftp/subastas/subastas_detalle.jsonl.gz /home/${{ secrets.SSH_USER }}/virtualenv/scripts/3.11/bin/python importer.py
 
       - name: 6. (Opcional) Upload Artifacts for Debugging
         if: failure()
