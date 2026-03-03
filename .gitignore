@@ -1,0 +1,11 @@
+# Archivos generados por los scrapers
+*.jsonl
+*.jsonl.gz
+
+# Archivos de caché y configuración de Python
+__pycache__/
+*.pyc
+.env
+
+# Screenshots de errores de Playwright
+*.png

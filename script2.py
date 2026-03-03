@@ -35,7 +35,7 @@ MAX_CONCURRENCY = _env_int("MAX_CONCURRENCY", 3)
 NAV_TIMEOUT_MS = _env_int("NAV_TIMEOUT_MS", 60_000)
 MAX_RETRIES = _env_int("MAX_RETRIES", 3)
 BLOCK_HEAVY_RESOURCES = _env_bool("BLOCK_HEAVY_RESOURCES", True)
-TEST_LIMIT = 10
+TEST_LIMIT = 0
 
 # ---------------- LOGGING ----------------
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
