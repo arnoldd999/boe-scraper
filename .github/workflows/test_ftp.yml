@@ -1,0 +1,21 @@
+name: Test FTP Connection
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test_ftp:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create dummy file
+        run: echo "Connection successful at $(date)" > test_connection.txt
+
+      - name: Upload to FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USER }}
+          password: ${{ secrets.FTP_PASS }}
+          server-dir: /public_ftp/subastas/
+          local-dir: ./
+          include: test_connection.txt
