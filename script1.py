@@ -8,19 +8,25 @@ from playwright.async_api import async_playwright
 
 # --- CONFIGURACIÓN DE LOGGING ---
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("boe-collector")
 
-# --- CONFIGURACIÓN DEL SCRAPER ---
+# --- CONSTANTES ---
+# Códigos de provincias (01-52)
+ALL_PROVINCIAS = [f"{i:02d}" for i in range(1, 53)]
+
+# --- CONFIGURACIÓN DEL SCRAPER (VALORES POR DEFECTO) ---
 CONFIG = {
-    "HEADLESS": False,
+    "HEADLESS": False,  # Poner en True para que no se abra el navegador
     "URL_BASE": "https://subastas.boe.es/subastas_ava.php",
-    "OUTPUT_FILE": "links_castellon.jsonl",
-    # Filtros de búsqueda
-    "LOCALIDAD": "Castellón de la Plana",  # Texto exacto para el campo Localidad
-    "PROVINCIA": "12",  # Código 12 = Castellón
-    "ESTADO": "EJ",  # EJ=Celebrándose, PU=Próx. apertura, etc.
-    "TIPO_BIEN": "I",  # I=Inmuebles, V=Vehículos
-    # Tiempos de espera (ms)
+    "OUTPUT_FILE": "links_subastas.jsonl",
+    
+    # --- FILTROS ACTIVOS ---
+    # Si dejas PROVINCIAS vacío [], buscará en TODAS (01-52).
+    # Para pruebas, puedes poner una lista: ["46", "12"] (Valencia, Castellón)
+    "PROVINCIAS": [], 
+    
+    "ESTADOS": ["EJ", "PU"],      # EJ=Celebrándose, PU=Próxima Apertura
+    "TIPOS_BIEN": ["I", "V"],     # I=Inmuebles, V=Vehículos
     "TIMEOUT_ESPERA": 3000,
 }
 
@@ -33,179 +39,183 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 def apply_env_config():
-    # Permite controlar el comportamiento desde GitHub Actions / cron sin editar el archivo
+    """
+    Sobrescribe la configuración por defecto SI existen variables de entorno.
+    Si no existen (ejecución local), se mantienen los valores de CONFIG definidos arriba.
+    """
     CONFIG["HEADLESS"] = _env_bool("HEADLESS", CONFIG["HEADLESS"])
-    CONFIG["OUTPUT_FILE"] = os.getenv("LINKS_OUTPUT_FILE", CONFIG["OUTPUT_FILE"])
-    CONFIG["LOCALIDADES"] = os.getenv("BOE_LOCALIDAD", CONFIG["LOCALIDAD"]).split(',')
-    CONFIG["PROVINCIAS"] = os.getenv("BOE_PROVINCIA", CONFIG["PROVINCIA"]).split(',')
+    
+    env_output = os.getenv("LINKS_OUTPUT_FILE")
+    if env_output:
+        CONFIG["OUTPUT_FILE"] = env_output
+    
+    # Provincias
+    prov_env = os.getenv("BOE_PROVINCIA")
+    if prov_env is not None: # Solo si la variable existe
+        if not prov_env or prov_env.upper() == "ALL":
+            CONFIG["PROVINCIAS"] = ALL_PROVINCIAS
+        else:
+            CONFIG["PROVINCIAS"] = [p.strip() for p in prov_env.split(',') if p.strip()]
+    elif not CONFIG["PROVINCIAS"]: # Si no hay ENV y la lista local está vacía -> USAR TODAS
+        CONFIG["PROVINCIAS"] = ALL_PROVINCIAS
 
-    # Acepta una lista de estados y tipos de bien separados por comas
-    estados_str = os.getenv("BOE_ESTADO", CONFIG["ESTADO"])
-    CONFIG["ESTADOS"] = [s.strip() for s in estados_str.split(',') if s.strip()]
+    # Estados
+    estados_str = os.getenv("BOE_ESTADO")
+    if estados_str:
+        CONFIG["ESTADOS"] = [s.strip() for s in estados_str.split(',') if s.strip()]
 
-    tipos_bien_str = os.getenv("BOE_TIPO_BIEN", CONFIG["TIPO_BIEN"])
-    CONFIG["TIPOS_BIEN"] = [t.strip().upper() for t in tipos_bien_str.split(',') if t.strip()]
+    # Tipos de bien
+    tipos_bien_str = os.getenv("BOE_TIPO_BIEN")
+    if tipos_bien_str:
+        CONFIG["TIPOS_BIEN"] = [t.strip().upper() for t in tipos_bien_str.split(',') if t.strip()]
 
-    # Por defecto, en automatización conviene sobrescribir el fichero de links
     CONFIG["APPEND_OUTPUT"] = _env_bool("APPEND_OUTPUT", False)
 
 
-async def recolectar_subastas_paginadas(page, tipo_bien, estado, provincia, localidad, vistos_global, output_file):
-    # --- FASE 1: BÚSQUEDA ---
-    logger.info(f"Iniciando navegación en {CONFIG['URL_BASE']}...")
+async def recolectar_subastas_paginadas(page, tipo_bien, estado, provincia, vistos_global, output_file):
+    logger.info(f"🔎 Buscando: Prov={provincia} | Tipo={tipo_bien} | Estado={estado}")
 
-    await page.goto(CONFIG["URL_BASE"], wait_until="domcontentloaded")
-
-    # Espera explícita del formulario
     try:
-        logger.info("⏳ Esperando a que cargue el formulario...")
-        await page.wait_for_selector(".caja.gris", state="visible", timeout=15000)
-    except Exception:
-        await page.screenshot(path="error_formulario.png")
-        logger.error("❌ El formulario no cargó a tiempo.")
+        await page.goto(CONFIG["URL_BASE"], wait_until="domcontentloaded")
+        
+        # Esperar a que cargue el formulario
+        try:
+            await page.wait_for_selector(".caja.gris", state="visible", timeout=5000)
+        except Exception:
+            logger.error("❌ No se cargó el formulario de búsqueda.")
+            return
+
+        # --- APLICAR FILTROS ---
+
+        # 1. TIPO DE BIEN (Inmuebles/Vehículos)
+        # Usamos selectores CSS directos a los IDs de los inputs
+        tipo_bien_map = {"I": "#idTipoBienI", "V": "#idTipoBienV"}
+        if tipo_bien in tipo_bien_map:
+            # Forzamos el click aunque esté oculto o cubierto por el label
+            await page.locator(tipo_bien_map[tipo_bien]).click(force=True)
+        else:
+            logger.warning(f"Tipo de bien '{tipo_bien}' no soportado. Saltando.")
+            return
+
+        # 2. ESTADO DE LA SUBASTA
+        estado_map = {"EJ": "#idEstadoEJ", "PU": "#idEstadoPU"}
+        if estado in estado_map:
+            await page.locator(estado_map[estado]).click(force=True)
+        else:
+            logger.warning(f"Estado '{estado}' no soportado. Saltando.")
+            return
+
+        # 3. PROVINCIA
+        # Selector escapado para ID con puntos
+        await page.select_option("#BIEN\\.COD_PROVINCIA", provincia)
+
+        # 4. RESULTADOS POR PÁGINA: 500
+        # Intentamos seleccionar por ID #mostrar (el que me pasaste)
+        try:
+            await page.select_option("#mostrar", "500")
+        except Exception:
+            # Fallback por si acaso
+            pass
+
+        # 5. CLICK EN BUSCAR
+        # Esperamos navegación explícitamente
+        async with page.expect_navigation():
+            await page.get_by_role("button", name="Buscar").click()
+
+    except Exception as e:
+        logger.error(f"❌ Error configurando búsqueda para Prov={provincia}: {e}")
         return
 
-    # 1. Seleccionar TIPO DE BIEN (configurable)
-    tipo_bien_map = {
-        "I": ("idTipoBienI", "Inmuebles"),
-        "V": ("idTipoBienV", "Vehículos"),
-        # Se podrían añadir más si hiciera falta
-    }
-    if tipo_bien in tipo_bien_map:
-        input_id, texto = tipo_bien_map[tipo_bien]
-        logger.info(f"⏳ Seleccionando tipo de bien: {texto}...")
-        # Hacemos clic en la etiqueta (label) en lugar del input oculto, es más robusto
-        await page.locator(f'label[for="{input_id}"]').click()
-        logger.info(f"✅ Radio button '{texto}' marcado.")
-
-    # 2. Rellenar LOCALIDAD (Campo de texto)
-    await page.get_by_label("Localidad").fill(localidad)
-    logger.info(f"✅ Localidad '{localidad}' escrita.")
-
-    # 3. Seleccionar PROVINCIA (Desplegable)
-    await page.select_option("#BIEN\\.COD_PROVINCIA", provincia)
-    logger.info(f"✅ Provincia seleccionada (Código {provincia}).")
-
-    # 4. Seleccionar ESTADO DE LA SUBASTA (Radio button)
-    if estado:
-        # Mapeo de estados conocidos (ajustar según se descubran más valores)
-        # PU = Próx. apertura (idEstadoPU)
-        # EJ = Celebrándose (idEstadoEJ) - Asunción basada en el patrón
-        # SU = Suspendida (idEstadoSU) - Asunción
-        # CA = Cancelada (idEstadoCA) - Asunción
-        
-        input_id = f"idEstado{estado}"
-        logger.info(f"⏳ Seleccionando estado de subasta: {estado} (ID: {input_id})...")
-        
-        # Hacemos clic en la etiqueta (label) asociada al input
-        await page.locator(f'label[for="{input_id}"]').click()
-        logger.info("✅ Estado de la subasta seleccionado.")
-
-    # Click en Buscar esperando navegación
-    logger.info("️ Ejecutando búsqueda...")
-    async with page.expect_navigation():
-        await page.get_by_role("button", name="Buscar").click()
-
-    # --- FASE 2: BUCLE DE RECOLECCIÓN ---
-    logger.info("✅ Resultados cargados. Comenzando extracción...")
-
+    # --- BUCLE DE PAGINACIÓN ---
     seguimos_buscando = True
-
+    page_num = 1
+    
     while seguimos_buscando:
-        # 1. Localizar el texto de resultados (en tu HTML está en .paginar > p)
-        elemento_contador = page.locator(".paginar p").first
-
-        if not await elemento_contador.is_visible():
-            logger.error("❌ No se visualiza el contador de resultados (posiblemente no hay resultados).")
+        # Chequeo rápido de "Sin resultados"
+        if await page.locator("text='No se han encontrado resultados'").count() > 0:
+            logger.info("ℹ️ Sin resultados.")
+            break
+        
+        # Chequeo de "Demasiados resultados"
+        if await page.locator("text='La consulta devuelve demasiados resultados'").count() > 0:
+            logger.warning("⚠️ Demasiados resultados. Se recomienda filtrar más.")
             break
 
-        texto_contador = await elemento_contador.inner_text()
-        texto_limpio = " ".join(texto_contador.split())
-        logger.info(f"📊 Estado: {texto_limpio}")
-
-        # 2. Parseo del string para paginación
-        partes = texto_limpio.split(" ")
-        try:
-            indice_de = partes.index("de")
-            num_actual_fin = int(partes[indice_de - 1])
-            num_total = int(partes[indice_de + 1])
-        except (ValueError, IndexError):
-            logger.error("❌ Error interpretando los números de la paginación.")
-            break
-
-        # 3. Extraer links (según tu captura: dentro de .resultado-busqueda hay un <a href="...">)
+        # Extraer enlaces
+        # Buscamos dentro de la clase .resultado-busqueda los <a> con href
         link_locators = await page.locator(".resultado-busqueda a[href]").all()
-
+        
         nuevos = 0
         with open(output_file, "a", encoding="utf-8") as f:
             for a in link_locators:
                 href = await a.get_attribute("href")
-                if not href:
+                if not href or "detalleSubasta" not in href:
                     continue
 
                 url_completa = urljoin(page.url, href)
+                
                 if url_completa in vistos_global:
                     continue
                 vistos_global.add(url_completa)
 
                 obj = {
-                    "url": url_completa, "provincia": provincia,
-                    "localidad": localidad,
+                    "url": url_completa,
+                    "provincia": provincia,
                     "tipo_bien": tipo_bien,
+                    "estado": estado,
+                    "scraped_at": os.getenv("RUN_TIMESTAMP", "")
                 }
                 f.write(json.dumps(obj, ensure_ascii=False) + "\n")
                 nuevos += 1
 
-        logger.info(f"💾 Guardados {nuevos} enlaces de esta página. (total únicos: {len(vistos_global)})")
+        logger.info(f"   📄 Pág {page_num}: {nuevos} links nuevos.")
 
-        # 4. Condición de salida
-        if num_actual_fin >= num_total:
-            logger.info("🏁 Última página alcanzada.")
-            seguimos_buscando = False
+        # Navegar a siguiente página
+        # Buscamos el enlace que tenga title="Página siguiente" O texto "Siguiente"
+        boton_siguiente = page.locator("a[title='Página siguiente']")
+        if await boton_siguiente.count() == 0:
+             boton_siguiente = page.locator("text='Siguiente'")
+
+        if await boton_siguiente.count() > 0 and await boton_siguiente.is_visible():
+            async with page.expect_navigation():
+                await boton_siguiente.first.click()
+            page_num += 1
         else:
-            # 5. Ir a la siguiente página
-            boton_siguiente = page.locator(".paginar2 ul li a").last
-
-            if await boton_siguiente.is_visible():
-                async with page.expect_navigation():
-                    await boton_siguiente.click()
-                await asyncio.sleep(0.5)
-            else:
-                logger.warning("⚠️ No hay botón siguiente aunque los números indican que faltan resultados.")
-                break
+            seguimos_buscando = False
 
 
 async def main():
+    # Aplicar configuración (prioridad ENV > Default)
     apply_env_config()
 
-    # Limpia el fichero de salida al inicio de la ejecución completa
     output_file = CONFIG["OUTPUT_FILE"]
+    # Limpiar fichero si no es modo append
     if not CONFIG.get("APPEND_OUTPUT", False):
-        logger.info(f"Limpiando fichero de salida: {output_file}")
         with open(output_file, "w", encoding="utf-8") as f:
-            f.write("")  # Truncate file
+            f.write("")
 
     vistos_global = set()
+    
+    logger.info("🚀 Iniciando recolección.")
+    logger.info(f"📋 Provincias a escanear: {len(CONFIG['PROVINCIAS'])}")
+    logger.info(f"📋 Tipos de bien: {CONFIG['TIPOS_BIEN']}")
+    logger.info(f"📋 Estados: {CONFIG['ESTADOS']}")
 
     async with async_playwright() as p:
-        logger.info("🚀 Lanzando navegador...")
         browser = await p.chromium.launch(headless=CONFIG["HEADLESS"])
         context = await browser.new_context()
         page = await context.new_page()
 
-        # Bucle principal que itera sobre todas las combinaciones de filtros
-        for provincia in CONFIG.get("PROVINCIAS", []):
-            for localidad in CONFIG.get("LOCALIDADES", []):
-                for tipo_bien in CONFIG["TIPOS_BIEN"]:
-                    for estado in CONFIG["ESTADOS"]:
-                        logger.info(
-                            f"--- Iniciando búsqueda para: Provincia={provincia}, Localidad={localidad}, Tipo={tipo_bien}, Estado={estado} ---")
-                        await recolectar_subastas_paginadas(page, tipo_bien, estado, provincia, localidad,
-                                                            vistos_global, output_file)
+        for provincia in CONFIG["PROVINCIAS"]:
+            for tipo in CONFIG["TIPOS_BIEN"]:
+                for estado in CONFIG["ESTADOS"]:
+                    await recolectar_subastas_paginadas(
+                        page, tipo, estado, provincia, vistos_global, output_file
+                    )
 
         await browser.close()
-        logger.info("🛑 Navegador cerrado.")
-
+    
+    logger.info(f"✅ Recolección finalizada. Total enlaces únicos: {len(vistos_global)}")
 
 if __name__ == "__main__":
     asyncio.run(main())

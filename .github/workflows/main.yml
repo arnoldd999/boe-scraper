@@ -11,17 +11,13 @@ on:
 jobs:
   scrape_and_import:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 360 # 6 horas máximo
 
     env:
       # --- FILTROS PARA LA RECOPILACIÓN DIARIA ---
-      # PU=Próx. apertura, EJ=Celebrándose. Buscamos subastas activas para refrescar su estado.
+      BOE_PROVINCIA: "ALL" 
       BOE_ESTADO: "EJ,PU"
-      # I=Inmuebles, V=Vehículos
       BOE_TIPO_BIEN: "I,V"
-      # Provincia y Localidad (ajusta según necesites)
-      BOE_PROVINCIA: "46"
-      BOE_LOCALIDAD: "Valencia"
 
       # --- NOMBRES DE FICHEROS INTERMEDIOS ---
       LINKS_OUTPUT_FILE: "links_activos.jsonl"
@@ -30,7 +26,13 @@ jobs:
 
       # --- CONFIGURACIÓN DE EJECUCIÓN ---
       HEADLESS: "1"
-      TEST_LIMIT: "0"
+      TEST_LIMIT: "0" # 0 para producción
+      
+      # --- OPTIMIZACIÓN DE RENDIMIENTO ---
+      # 6 es el punto dulce para los runners de GitHub (2 vCPU / 7GB RAM)
+      # Más de 6 podría saturar la CPU y causar timeouts.
+      MAX_CONCURRENCY: "6" 
+      NAV_TIMEOUT_MS: "60000" # 60s por página para evitar errores si la CPU va lenta
 
     steps:
       - name: 1. Checkout Code
@@ -43,8 +45,8 @@ jobs:
           cache: "pip"
       - run: |
           python -m pip install --upgrade pip
-          # Asume que tienes un requirements.txt con playwright, mysql-connector-python, etc.
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          # Instalar Playwright y sus dependencias de navegador
           pip install playwright
           python -m playwright install --with-deps chromium
 
@@ -57,28 +59,17 @@ jobs:
       - name: 5. Compress results
         run: gzip -c subastas_detalle.jsonl > subastas_detalle.jsonl.gz
 
-      - name: 6. Upload JSONL via SCP
-        uses: appleboy/scp-action@v0.1.7
+      - name: 6. Upload to FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          source: "subastas_detalle.jsonl.gz"
-          target: "/home/${{ secrets.SSH_USER }}/public_ftp/subastas/"
+          server: ${{ secrets.FTP_HOST }}
+          username: ${{ secrets.FTP_USER }}
+          password: ${{ secrets.FTP_PASS }}
+          server-dir: /public_ftp/subastas/
+          local-dir: ./
+          include: subastas_detalle.jsonl.gz
 
-      - name: 7. Run Importer via SSH
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          script: |
-            cd /home/${{ secrets.SSH_USER }}/scripts
-            DB_HOST=${{ secrets.DB_HOST}} DB_USER={{ secrets.DB_USER}} DB_PASS="${{ secrets.DB_PASS }}" DB_NAME= {{ secrets.DB_NAME }} OUTPUT_DETAIL_JSONL=/home/${{ secrets.SSH_USER }}/public_ftp/subastas/subastas_detalle.jsonl.gz /home/${{ secrets.SSH_USER }}/virtualenv/scripts/3.11/bin/python importer.py
-
-      - name: 6. (Opcional) Upload Artifacts for Debugging
+      - name: 7. (Opcional) Upload Artifacts for Debugging
         if: failure()
         uses: actions/upload-artifact@v4
         with:
