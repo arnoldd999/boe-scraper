@@ -148,6 +148,17 @@ def load_items_from_links(path: str) -> List[Dict[str, Any]]:
         out.append(item)
     return out
 
+def load_processed_urls(output_path: str) -> set:
+    processed = set()
+    p = Path(output_path)
+    if not p.exists():
+        return processed
+    for obj in iter_jsonl(output_path):
+        u = obj.get("url")
+        if isinstance(u, str) and u.startswith("http"):
+            processed.add(u)
+    return processed
+
 async def block_resources(page):
     if not BLOCK_HEAVY_RESOURCES:
         return
