@@ -57,7 +57,9 @@ jobs:
         run: python script2.py
 
       - name: 5. Compress results
-        run: gzip -c subastas_detalle.jsonl > subastas_detalle.jsonl.gz
+        run: |
+          mkdir upload_dist
+          gzip -c subastas_detalle.jsonl > upload_dist/subastas_detalle.jsonl.gz
 
       - name: 6. Upload to FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
@@ -66,8 +68,7 @@ jobs:
           username: ${{ secrets.FTP_USER }}
           password: ${{ secrets.FTP_PASS }}
           server-dir: /public_ftp/subastas/
-          local-dir: ./
-          include: subastas_detalle.jsonl.gz
+          local-dir: ./upload_dist/
 
       - name: 7. (Opcional) Upload Artifacts for Debugging
         if: failure()

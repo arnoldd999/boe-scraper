@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import gzip
 import logging
 from decimal import Decimal, InvalidOperation
@@ -26,6 +27,12 @@ def parse_money(val: Any) -> Optional[Decimal]:
 def parse_datetime(text: str) -> Optional[str]:
     if not text or not isinstance(text, str):
         return None
+
+    # Extraer la parte ISO si el texto tiene el formato del BOE: "... (ISO: 2026-02-05T18:00:00+01:00)"
+    match = re.search(r'\(ISO:\s*([^)]+)\)', text)
+    if match:
+        text = match.group(1)
+
     try:
         dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
         return dt.strftime('%Y-%m-%d %H:%M:%S')
@@ -212,6 +219,8 @@ def main():
                 
                 f_inicio = get_safe(info_gen, "fecha_de_inicio")
                 f_fin = get_safe(info_gen, "fecha_de_conclusion")
+                val_subasta = get_safe(info_gen, "valor_subasta")
+                val_subasta_str = str(val_subasta) if val_subasta is not None else None
                 
                 vals_subasta = (
                     identificador,
@@ -225,7 +234,7 @@ def main():
                     parse_money(get_safe(info_gen, "cantidad_reclamada")),
                     get_safe(info_gen, "lotes"),
                     get_safe(info_gen, "anuncio_boe"),
-                    get_safe(info_gen, "valor_subasta") if isinstance(get_safe(info_gen, "valor_subasta"), str) else None
+                    val_subasta_str
                 )
                 
                 cursor.execute(sql_subasta, vals_subasta)

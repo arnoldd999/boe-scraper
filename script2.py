@@ -132,19 +132,20 @@ def iter_jsonl(path: str) -> Iterable[dict]:
             except Exception:
                 continue
 
-def load_urls_from_links(path: str) -> List[str]:
-    urls: List[str] = []
+def load_items_from_links(path: str) -> List[Dict[str, Any]]:
+    items: List[Dict[str, Any]] = []
     for obj in iter_jsonl(path):
         u = obj.get("url")
         if isinstance(u, str) and u.startswith("http"):
-            urls.append(u)
+            items.append(obj)
     seen = set()
     out = []
-    for u in urls:
+    for item in items:
+        u = item["url"]
         if u in seen:
             continue
         seen.add(u)
-        out.append(u)
+        out.append(item)
     return out
 
 async def block_resources(page):
@@ -315,8 +316,9 @@ def unique_tab_key(base: str, used: set) -> str:
     used.add(k)
     return k
 
-async def scrape_one(context, url: str) -> Dict[str, Any]:
+async def scrape_one(context, item_link: Dict[str, Any]) -> Dict[str, Any]:
     page = await context.new_page()
+    url = item_link["url"]
     try:
         await block_resources(page)
         await page.goto(url, timeout=NAV_TIMEOUT_MS, wait_until="domcontentloaded")
@@ -324,6 +326,11 @@ async def scrape_one(context, url: str) -> Dict[str, Any]:
         raw_result: Dict[str, Any] = {
             "url": url,
             "scraped_at": now_iso_utc(),
+            # Metadatos heredados del script1 (filtros)
+            "meta_estado": item_link.get("estado"),
+            "meta_estado_nombre": item_link.get("estado_nombre"),
+            "meta_provincia": item_link.get("provincia"),
+            "meta_tipo_bien": item_link.get("tipo_bien"),
         }
 
         h = page.locator("#contenido h2, #contenido h1, h2, h1, h3").first
@@ -380,12 +387,12 @@ async def scrape_one(context, url: str) -> Dict[str, Any]:
 
 async def worker(context, in_queue: asyncio.Queue, out_queue: asyncio.Queue):
     while True:
-        try: url = in_queue.get_nowait()
+        try: item = in_queue.get_nowait()
         except asyncio.QueueEmpty: break
         last_err = None
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                obj = await scrape_one(context, url)
+                obj = await scrape_one(context, item)
                 keys = set(obj.keys()) - {"url", "scraped_at", "titulo", "error"}
                 if not keys: raise Exception("Página vacía")
                 await out_queue.put(obj)
@@ -395,8 +402,8 @@ async def worker(context, in_queue: asyncio.Queue, out_queue: asyncio.Queue):
             except Exception as e: last_err = str(e)
             await asyncio.sleep(2 * attempt)
         if last_err:
-            logger.error(f"FALLO FINAL en {url}: {last_err}")
-            await out_queue.put({"url": url, "scraped_at": now_iso_utc(), "error": last_err})
+            logger.error(f"FALLO FINAL en {item['url']}: {last_err}")
+            await out_queue.put({"url": item['url'], "scraped_at": now_iso_utc(), "error": last_err})
         in_queue.task_done()
 
 async def writer(out_queue: asyncio.Queue, output_path: str, total_pending: int):
@@ -418,18 +425,21 @@ async def writer(out_queue: asyncio.Queue, output_path: str, total_pending: int)
 
 async def main():
     async with RUN_LOCK:
-        urls = load_urls_from_links(INPUT_LINKS_JSONL)
-        if not urls:
+        items = load_items_from_links(INPUT_LINKS_JSONL)
+        if not items:
             logger.error(f"No se encontraron URLs en {INPUT_LINKS_JSONL}")
             return
-        pending = urls
+        
+        processed = load_processed_urls(OUTPUT_DETAIL_JSONL)
+        pending = [item for item in items if item["url"] not in processed]
+
         if TEST_LIMIT and len(pending) > TEST_LIMIT:
             logger.info(f"MODO PRUEBA: {TEST_LIMIT} de {len(pending)} URLs.")
             pending = pending[:TEST_LIMIT]
         logger.info(f"Iniciando scraping: {len(pending)} URLs.")
         if not pending: return
         in_queue = asyncio.Queue()
-        for u in pending: in_queue.put_nowait(u)
+        for item in pending: in_queue.put_nowait(item)
         out_queue = asyncio.Queue()
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=HEADLESS)

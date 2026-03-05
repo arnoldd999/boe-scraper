@@ -99,6 +99,7 @@ async def recolectar_subastas_paginadas(page, tipo_bien, estado, provincia, vist
 
         # 2. ESTADO DE LA SUBASTA
         estado_map = {"EJ": "#idEstadoEJ", "PU": "#idEstadoPU"}
+        estado_nombres = {"EJ": "Celebrándose", "PU": "Próxima Apertura"}
         if estado in estado_map:
             await page.locator(estado_map[estado]).click(force=True)
         else:
@@ -163,6 +164,7 @@ async def recolectar_subastas_paginadas(page, tipo_bien, estado, provincia, vist
                     "provincia": provincia,
                     "tipo_bien": tipo_bien,
                     "estado": estado,
+                    "estado_nombre": estado_nombres.get(estado, "Desconocido"),
                     "scraped_at": os.getenv("RUN_TIMESTAMP", "")
                 }
                 f.write(json.dumps(obj, ensure_ascii=False) + "\n")
