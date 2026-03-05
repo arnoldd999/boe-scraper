@@ -227,7 +227,7 @@ def main():
                     get_safe(data, "url"),
                     get_safe(data, "titulo"),
                     get_safe(info_gen, "tipo_de_subasta"),
-                    get_safe(info_gen, "estado_de_la_subasta"),
+                    get_safe(data, "meta_estado_nombre") or get_safe(info_gen, "estado_de_la_subasta"),
                     get_safe(info_gen, "cuenta_expediente"),
                     parse_datetime(f_inicio),
                     parse_datetime(f_fin),
