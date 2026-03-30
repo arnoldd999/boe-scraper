@@ -21,9 +21,10 @@ CONFIG = {
     "OUTPUT_FILE": "links_subastas.jsonl",
     
     # --- FILTROS ACTIVOS ---
-    # Si dejas PROVINCIAS vacío [], buscará en TODAS (01-52).
-    # Para pruebas, puedes poner una lista: ["46", "12"] (Valencia, Castellón)
-    "PROVINCIAS": [], 
+    # Por defecto, buscará en TODAS las provincias (01-52).
+    # Para pruebas, puedes comentar la línea de abajo y descomentar la siguiente:
+    # "PROVINCIAS": ["46", "50"], # Ejemplo: Valencia y Zaragoza
+    "PROVINCIAS": ALL_PROVINCIAS, 
     
     "ESTADOS": ["EJ", "PU"],      # EJ=Celebrándose, PU=Próxima Apertura
     "TIPOS_BIEN": ["I", "V"],     # I=Inmuebles, V=Vehículos
@@ -56,8 +57,6 @@ def apply_env_config():
             CONFIG["PROVINCIAS"] = ALL_PROVINCIAS
         else:
             CONFIG["PROVINCIAS"] = [p.strip() for p in prov_env.split(',') if p.strip()]
-    elif not CONFIG["PROVINCIAS"]: # Si no hay ENV y la lista local está vacía -> USAR TODAS
-        CONFIG["PROVINCIAS"] = ALL_PROVINCIAS
 
     # Estados
     estados_str = os.getenv("BOE_ESTADO")

@@ -1,3 +1,2 @@
-    playwright
-    mysql-connector-python
-    
+playwright
+mysql-connector-python

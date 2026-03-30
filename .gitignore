@@ -5,7 +5,7 @@
 # Archivos de caché y configuración de Python
 __pycache__/
 *.pyc
-.env
+#.env
 
 # Screenshots de errores de Playwright
 *.png
