@@ -84,16 +84,11 @@ async def recolectar_subastas_paginadas(page, tipo_bien, estado, provincia, vist
             logger.error("❌ No se cargó el formulario de búsqueda.")
             return
 
-        # --- APLICAR FILTROS ---
-
-        # 1. TIPO DE BIEN (Inmuebles/Vehículos)
-        # Usamos selectores CSS directos a los IDs de los inputs
+        # 1. TIPO DE BIEN
         tipo_bien_map = {"I": "#idTipoBienI", "V": "#idTipoBienV"}
         if tipo_bien in tipo_bien_map:
-            # Forzamos el click aunque esté oculto o cubierto por el label
             await page.locator(tipo_bien_map[tipo_bien]).click(force=True)
         else:
-            logger.warning(f"Tipo de bien '{tipo_bien}' no soportado. Saltando.")
             return
 
         # 2. ESTADO DE LA SUBASTA
@@ -102,23 +97,18 @@ async def recolectar_subastas_paginadas(page, tipo_bien, estado, provincia, vist
         if estado in estado_map:
             await page.locator(estado_map[estado]).click(force=True)
         else:
-            logger.warning(f"Estado '{estado}' no soportado. Saltando.")
             return
 
         # 3. PROVINCIA
-        # Selector escapado para ID con puntos
         await page.select_option("#BIEN\\.COD_PROVINCIA", provincia)
 
         # 4. RESULTADOS POR PÁGINA: 500
-        # Intentamos seleccionar por ID #mostrar (el que me pasaste)
         try:
             await page.select_option("#mostrar", "500")
         except Exception:
-            # Fallback por si acaso
             pass
 
         # 5. CLICK EN BUSCAR
-        # Esperamos navegación explícitamente
         async with page.expect_navigation():
             await page.get_by_role("button", name="Buscar").click()
 
@@ -127,62 +117,69 @@ async def recolectar_subastas_paginadas(page, tipo_bien, estado, provincia, vist
         return
 
     # --- BUCLE DE PAGINACIÓN ---
-    seguimos_buscando = True
-    page_num = 1
-    
-    while seguimos_buscando:
-        # Chequeo rápido de "Sin resultados"
-        if await page.locator("text='No se han encontrado resultados'").count() > 0:
-            logger.info("ℹ️ Sin resultados.")
-            break
+    # NUEVO: Envolvemos la paginación en try-except para que no aborte todo el proceso si falla algo
+    try:
+        seguimos_buscando = True
+        page_num = 1
         
-        # Chequeo de "Demasiados resultados"
-        if await page.locator("text='La consulta devuelve demasiados resultados'").count() > 0:
-            logger.warning("⚠️ Demasiados resultados. Se recomienda filtrar más.")
-            break
+        while seguimos_buscando:
+            if await page.locator("text='No se han encontrado resultados'").count() > 0:
+                logger.info("ℹ️ Sin resultados.")
+                break
+            
+            # Chequeo de demasiados resultados (solo advierte, extraeremos los enlaces visibles y luego cortamos)
+            demasiados = await page.locator("text='La consulta devuelve demasiados resultados'").count() > 0
+            if demasiados:
+                logger.warning("⚠️ Demasiados resultados. Se extraerán los disponibles en esta página y se cortará.")
 
-        # Extraer enlaces
-        # Buscamos dentro de la clase .resultado-busqueda los <a> con href
-        link_locators = await page.locator(".resultado-busqueda a[href]").all()
-        
-        nuevos = 0
-        with open(output_file, "a", encoding="utf-8") as f:
-            for a in link_locators:
-                href = await a.get_attribute("href")
-                if not href or "detalleSubasta" not in href:
-                    continue
+            # Extraer enlaces
+            link_locators = await page.locator(".resultado-busqueda a[href]").all()
+            
+            nuevos = 0
+            with open(output_file, "a", encoding="utf-8") as f:
+                for a in link_locators:
+                    href = await a.get_attribute("href")
+                    if not href or "detalleSubasta" not in href:
+                        continue
 
-                url_completa = urljoin(page.url, href)
-                
-                if url_completa in vistos_global:
-                    continue
-                vistos_global.add(url_completa)
+                    url_completa = urljoin(page.url, href)
+                    
+                    if url_completa in vistos_global:
+                        continue
+                    vistos_global.add(url_completa)
 
-                obj = {
-                    "url": url_completa,
-                    "provincia": provincia,
-                    "tipo_bien": tipo_bien,
-                    "estado": estado,
-                    "estado_nombre": estado_nombres.get(estado, "Desconocido"),
-                    "scraped_at": os.getenv("RUN_TIMESTAMP", "")
-                }
-                f.write(json.dumps(obj, ensure_ascii=False) + "\n")
-                nuevos += 1
+                    obj = {
+                        "url": url_completa,
+                        "provincia": provincia,
+                        "tipo_bien": tipo_bien,
+                        "estado": estado,
+                        "estado_nombre": estado_nombres.get(estado, "Desconocido"),
+                        "scraped_at": os.getenv("RUN_TIMESTAMP", "")
+                    }
+                    f.write(json.dumps(obj, ensure_ascii=False) + "\n")
+                    nuevos += 1
 
-        logger.info(f"   📄 Pág {page_num}: {nuevos} links nuevos.")
+            logger.info(f"   📄 Pág {page_num}: {nuevos} links nuevos.")
 
-        # Navegar a siguiente página
-        # Buscamos el enlace que tenga title="Página siguiente" O texto "Siguiente"
-        boton_siguiente = page.locator("a[title='Página siguiente']")
-        if await boton_siguiente.count() == 0:
-             boton_siguiente = page.locator("text='Siguiente'")
+            if demasiados:
+                break # Rompemos después de extraer
 
-        if await boton_siguiente.count() > 0 and await boton_siguiente.is_visible():
-            async with page.expect_navigation():
-                await boton_siguiente.first.click()
-            page_num += 1
-        else:
-            seguimos_buscando = False
+            # Navegar a siguiente página
+            boton_siguiente = page.locator("a[title='Página siguiente']")
+            if await boton_siguiente.count() == 0:
+                 boton_siguiente = page.locator("text='Siguiente'")
+
+            # SOLUCIÓN DEL CRASH: Usar .first.is_visible() para evitar el Strict Mode Violation
+            if await boton_siguiente.count() > 0 and await boton_siguiente.first.is_visible():
+                async with page.expect_navigation():
+                    await boton_siguiente.first.click()
+                page_num += 1
+            else:
+                seguimos_buscando = False
+
+    except Exception as e:
+        # Si ocurre un timeout o error pasando de página, lo registramos pero continuamos con la siguiente provincia.
+        logger.error(f"❌ Error durante la paginación en Prov={provincia}: {e}")
 
 
 async def main():
