@@ -19,12 +19,53 @@ logger = logging.getLogger("importer")
 def parse_money(val: Any) -> Optional[Decimal]:
     if val is None:
         return None
+    if isinstance(val, list):
+        if not val:
+            return None
+        val = val[0]
     try:
         return Decimal(str(val))
     except (InvalidOperation, ValueError):
         return None
 
-def parse_datetime(text: str) -> Optional[str]:
+def _ensure_scalar_string(value: Any) -> Optional[str]:
+    """
+    Ensures a value is a scalar string or None. If it's a list, it joins the elements.
+    """
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return ", ".join(map(str, value))
+    return str(value)
+# --- CONSTANTES ---
+# Diccionario para mapear códigos de provincia a nombres
+PROVINCES = {
+    "01": "Araba/Álava", "02": "Albacete", "03": "Alicante/Alacant", "04": "Almería", "05": "Ávila",
+    "06": "Badajoz", "07": "Illes Balears", "08": "Barcelona", "09": "Burgos", "10": "Cáceres",
+    "11": "Cádiz", "12": "Castellón/Castelló", "13": "Ciudad Real", "14": "Córdoba", "15": "A Coruña",
+    "16": "Cuenca", "17": "Girona", "18": "Granada", "19": "Guadalajara", "20": "Gipuzkoa",
+    "21": "Huelva", "22": "Huesca", "23": "Jaén", "24": "León", "25": "Lleida",
+    "26": "La Rioja", "27": "Lugo", "28": "Madrid", "29": "Málaga", "30": "Murcia",
+    "31": "Navarra", "32": "Ourense", "33": "Asturias", "34": "Palencia", "35": "Las Palmas",
+    "36": "Pontevedra", "37": "Salamanca", "38": "Santa Cruz de Tenerife", "39": "Cantabria", "40": "Segovia",
+    "41": "Sevilla", "42": "Soria", "43": "Tarragona", "44": "Teruel", "45": "Toledo",
+    "46": "Valencia/València", # ¡Aquí está el cambio para Valencia!
+    "47": "Valladolid", "48": "Bizkaia", "49": "Zamora", "50": "Zaragoza",
+    "51": "Ceuta", "52": "Melilla"
+}
+
+def get_province_name(code: str) -> Optional[str]:
+    """
+    Traduce el código de provincia (ej. "46") a su nombre (ej. "Valencia/València").
+    """
+    return PROVINCES.get(code)
+
+
+def parse_datetime(text: Any) -> Optional[str]:
+    if isinstance(text, list):
+        if not text:
+            return None
+        text = text[0]
     if not text or not isinstance(text, str):
         return None
 
@@ -58,12 +99,12 @@ def insert_autoridad(cursor, subasta_id: int, data: dict):
     """
     vals = (
         subasta_id,
-        get_safe(data, "codigo"),
-        get_safe(data, "descripcion"),
-        get_safe(data, "direccion"),
-        get_safe(data, "telefono"),
-        get_safe(data, "fax"),
-        get_safe(data, "correo_electronico")
+        _ensure_scalar_string(get_safe(data, "codigo")),
+        _ensure_scalar_string(get_safe(data, "descripcion")),
+        _ensure_scalar_string(get_safe(data, "direccion")),
+        _ensure_scalar_string(get_safe(data, "telefono")),
+        _ensure_scalar_string(get_safe(data, "fax")),
+        _ensure_scalar_string(get_safe(data, "correo_electronico"))
     )
     cursor.execute(sql, vals)
 
@@ -72,23 +113,27 @@ def insert_items(cursor, lote_id: int, items_list: list):
     sql = """
         INSERT INTO lotes_items 
         (lote_id, titulo_bien, descripcion, direccion, codigo_postal, localidad, provincia, 
-         vivienda_habitual, situacion_posesoria, visitable, cargas, referencia_catastral)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+         vivienda_habitual, situacion_posesoria, visitable, cargas, referencia_catastral, datos_adicionales)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """
+    known_columns = ['titulo_bien', 'descripcion', 'direccion', 'codigo_postal', 'localidad', 'provincia','vivienda_habitual','situacion_posesoria','visitable','cargas','referencia_catastral','idufir']
     for b in items_list:
+
+        extra_data = {k: v for k, v in b.items() if k not in known_columns}
         vals = (
             lote_id,
-            get_safe(b, "titulo_bien"),
-            get_safe(b, "descripcion"),
-            get_safe(b, "direccion"),
-            get_safe(b, "codigo_postal"),
-            get_safe(b, "localidad"),
-            get_safe(b, "provincia"),
-            get_safe(b, "vivienda_habitual"),
-            get_safe(b, "situacion_posesoria"),
-            get_safe(b, "visitable"),
-            get_safe(b, "cargas"),
-            get_safe(b, "referencia_catastral") or get_safe(b, "idufir")
+            _ensure_scalar_string(get_safe(b, "titulo_bien")),
+            _ensure_scalar_string(get_safe(b, "descripcion")),
+            _ensure_scalar_string(get_safe(b, "direccion")),
+            _ensure_scalar_string(get_safe(b, "codigo_postal")),
+            _ensure_scalar_string(get_safe(b, "localidad")),
+            _ensure_scalar_string(get_safe(b, "provincia")),
+            _ensure_scalar_string(get_safe(b, "vivienda_habitual")),
+            _ensure_scalar_string(get_safe(b, "situacion_posesoria")),
+            _ensure_scalar_string(get_safe(b, "visitable")),
+            _ensure_scalar_string(get_safe(b, "cargas")),
+            _ensure_scalar_string(get_safe(b, "referencia_catastral") or get_safe(b, "idufir")),
+            json.dumps(extra_data) if extra_data else None
         )
         cursor.execute(sql, vals)
 
@@ -109,12 +154,12 @@ def insert_lotes(cursor, subasta_id: int, lotes_data: Any):
     for l in lista_lotes:
         vals = (
             subasta_id,
-            get_safe(l, "nombre_lote") or "Lote Único",
-            get_safe(l, "descripcion") or get_safe(l, "descripcion_lote"),
+            _ensure_scalar_string(get_safe(l, "nombre_lote") or "Lote Único"),
+            _ensure_scalar_string(get_safe(l, "descripcion") or get_safe(l, "descripcion_lote")),
             parse_money(get_safe(l, "valor_subasta")),
             parse_money(get_safe(l, "valor_de_tasacion") or get_safe(l, "tasacion")),
             parse_money(get_safe(l, "importe_del_deposito")),
-            get_safe(l, "puja_minima"),
+            _ensure_scalar_string(get_safe(l, "puja_minima")),
             parse_money(get_safe(l, "tramos_entre_pujas"))
         )
         cursor.execute(sql_lote, vals)
@@ -138,12 +183,12 @@ def insert_acreedores(cursor, subasta_id: int, data: dict):
     for r in items:
         vals = (
             subasta_id,
-            get_safe(r, "nombre"),
-            get_safe(r, "nif"),
-            get_safe(r, "direccion"),
-            get_safe(r, "localidad"),
-            get_safe(r, "provincia"),
-            get_safe(r, "pais")
+            _ensure_scalar_string(get_safe(r, "nombre")),
+            _ensure_scalar_string(get_safe(r, "nif")),
+            _ensure_scalar_string(get_safe(r, "direccion")),
+            _ensure_scalar_string(get_safe(r, "localidad")),
+            _ensure_scalar_string(get_safe(r, "provincia")),
+            _ensure_scalar_string(get_safe(r, "pais"))
         )
         cursor.execute(sql, vals)
 
@@ -199,10 +244,12 @@ def main():
                 # 1. UPSERT Subasta
                 sql_subasta = """
                     INSERT INTO subastas (
-                        identificador, url, titulo, tipo_de_subasta, estado_de_la_subasta,
+                        identificador, url, titulo, tipo_de_subasta, estado_de_la_subasta, provincia_nombre,
                         cuenta_expediente, fecha_inicio, fecha_conclusion, cantidad_reclamada,
                         lotes, anuncio_boe, valor_subasta_total_texto
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    )
                     ON DUPLICATE KEY UPDATE
                         url = VALUES(url),
                         titulo = VALUES(titulo),
@@ -210,6 +257,7 @@ def main():
                         estado_de_la_subasta = VALUES(estado_de_la_subasta),
                         fecha_inicio = VALUES(fecha_inicio),
                         fecha_conclusion = VALUES(fecha_conclusion),
+                        provincia_nombre = VALUES(provincia_nombre),
                         cantidad_reclamada = VALUES(cantidad_reclamada),
                         lotes = VALUES(lotes),
                         anuncio_boe = VALUES(anuncio_boe),
@@ -222,19 +270,31 @@ def main():
                 val_subasta = get_safe(info_gen, "valor_subasta")
                 val_subasta_str = str(val_subasta) if val_subasta is not None else None
                 
+                # Obtener el nombre de la provincia a partir del código
+                provincia_code = get_safe(data, "meta_provincia")
+                provincia_name = get_province_name(provincia_code)
+                
+                # Asegurarse de que 'lotes' sea una cadena de texto, no una lista
+                lotes_value = get_safe(info_gen, "lotes")
+                if isinstance(lotes_value, list):
+                    lotes_value = ", ".join(map(str, lotes_value)) # Convierte la lista a una cadena
+                elif lotes_value is not None:
+                    lotes_value = str(lotes_value) # Asegura que sea una cadena si no es None
+
                 vals_subasta = (
-                    identificador,
-                    get_safe(data, "url"),
-                    get_safe(data, "titulo"),
-                    get_safe(info_gen, "tipo_de_subasta"),
-                    get_safe(data, "meta_estado_nombre") or get_safe(info_gen, "estado_de_la_subasta"),
-                    get_safe(info_gen, "cuenta_expediente"),
+                    _ensure_scalar_string(identificador),
+                    _ensure_scalar_string(get_safe(data, "url")),
+                    _ensure_scalar_string(get_safe(data, "titulo")),
+                    _ensure_scalar_string(get_safe(info_gen, "tipo_de_subasta")),
+                    _ensure_scalar_string(get_safe(data, "meta_estado_nombre") or get_safe(info_gen, "estado_de_la_subasta")),
+                    _ensure_scalar_string(provincia_name), # Nuevo campo para el nombre de la provincia
+                    _ensure_scalar_string(get_safe(info_gen, "cuenta_expediente")),
                     parse_datetime(f_inicio),
                     parse_datetime(f_fin),
-                    parse_money(get_safe(info_gen, "cantidad_reclamada")),
-                    get_safe(info_gen, "lotes"),
-                    get_safe(info_gen, "anuncio_boe"),
-                    val_subasta_str
+                    parse_money(get_safe(info_gen, "cantidad_reclamada")), # Asegura que sea un Decimal o None
+                    lotes_value, # Usa el valor de lotes procesado
+                    _ensure_scalar_string(get_safe(info_gen, "anuncio_boe")),
+                    _ensure_scalar_string(val_subasta_str)
                 )
                 
                 cursor.execute(sql_subasta, vals_subasta)
