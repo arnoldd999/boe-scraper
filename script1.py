@@ -24,7 +24,7 @@ CONFIG = {
     # Por defecto, buscará en TODAS las provincias (01-52).
     # Para pruebas, puedes comentar la línea de abajo y descomentar la siguiente:
     # "PROVINCIAS": ["46", "50"], # Ejemplo: Valencia y Zaragoza
-    "PROVINCIAS": ALL_PROVINCIAS, 
+    "PROVINCIAS": ["12", "46", "03", "43", "02", "13", "16", "19", "45"],
     
     "ESTADOS": ["EJ", "PU"],      # EJ=Celebrándose, PU=Próxima Apertura
     "TIPOS_BIEN": ["I", "V"],     # I=Inmuebles, V=Vehículos
