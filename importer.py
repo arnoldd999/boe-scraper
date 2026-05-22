@@ -1,4 +1,7 @@
 import os
+from dotenv import load_dotenv
+
+load_dotenv()  # Esto carga las variables del archivo .env automáticamente
 import json
 import re
 import gzip

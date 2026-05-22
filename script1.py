@@ -2,9 +2,11 @@ import asyncio
 import json
 import logging
 import os
+import random
 from urllib.parse import urljoin
 
 from playwright.async_api import async_playwright
+from playwright_stealth import stealth_async
 
 # --- CONFIGURACIÓN DE LOGGING ---
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -75,6 +77,7 @@ async def recolectar_subastas_paginadas(page, tipo_bien, estado, provincia, vist
     logger.info(f"🔎 Buscando: Prov={provincia} | Tipo={tipo_bien} | Estado={estado}")
 
     try:
+        await asyncio.sleep(random.uniform(1.0, 3.0)) # Pausa antes de cada nueva búsqueda
         await page.goto(CONFIG["URL_BASE"], wait_until="domcontentloaded")
         
         # Esperar a que cargue el formulario
@@ -88,6 +91,7 @@ async def recolectar_subastas_paginadas(page, tipo_bien, estado, provincia, vist
         tipo_bien_map = {"I": "#idTipoBienI", "V": "#idTipoBienV"}
         if tipo_bien in tipo_bien_map:
             await page.locator(tipo_bien_map[tipo_bien]).click(force=True)
+            await asyncio.sleep(random.uniform(0.3, 1.0))
         else:
             return
 
@@ -96,15 +100,18 @@ async def recolectar_subastas_paginadas(page, tipo_bien, estado, provincia, vist
         estado_nombres = {"EJ": "Celebrándose", "PU": "Próxima Apertura"}
         if estado in estado_map:
             await page.locator(estado_map[estado]).click(force=True)
+            await asyncio.sleep(random.uniform(0.3, 1.0))
         else:
             return
 
         # 3. PROVINCIA
         await page.select_option("#BIEN\\.COD_PROVINCIA", provincia)
+        await asyncio.sleep(random.uniform(0.3, 1.0))
 
         # 4. RESULTADOS POR PÁGINA: 500
         try:
             await page.select_option("#mostrar", "500")
+            await asyncio.sleep(random.uniform(0.3, 1.0))
         except Exception:
             pass
 
@@ -171,6 +178,7 @@ async def recolectar_subastas_paginadas(page, tipo_bien, estado, provincia, vist
 
             # SOLUCIÓN DEL CRASH: Usar .first.is_visible() para evitar el Strict Mode Violation
             if await boton_siguiente.count() > 0 and await boton_siguiente.first.is_visible():
+                await asyncio.sleep(random.uniform(1.5, 4.0)) # Pausa humana antes de cambiar de página
                 async with page.expect_navigation(timeout=15000):
                     await boton_siguiente.first.click()
                 page_num += 1
@@ -202,8 +210,9 @@ async def main():
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=CONFIG["HEADLESS"])
-        context = await browser.new_context()
+        context = await browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
         page = await context.new_page()
+        await stealth_async(page) # <-- EVASION DE SEGURIDAD
 
         for provincia in CONFIG["PROVINCIAS"]:
             for tipo in CONFIG["TIPOS_BIEN"]:

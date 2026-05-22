@@ -1,38 +1,42 @@
 name: Scrape BOE and Import to Database
 
 on:
-  # Permite ejecución manual desde la pestaña "Actions" de GitHub
   workflow_dispatch:
-  
-  # Ejecución programada (ej. todos los días a las 3:30 AM UTC)
   schedule:
     - cron: "30 3 * * *"
 
 jobs:
-  scrape_and_import:
+  scrape:
     runs-on: ubuntu-latest
     timeout-minutes: 360 # 6 horas máximo
+    
+    # Definimos la estrategia en matriz
+    strategy:
+      fail-fast: false # Si una tanda falla, que sigan las demás
+      matrix:
+        # Dividimos las provincias en grupos para evitar bloqueos
+        # Ejemplo: tanda_1 (1-10), tanda_2 (11-20), etc. Puedes ajustar los IDs a tu gusto.
+        provincias: 
+          - "01,02,03,04,05,06,07,08,09,10"
+          - "11,12,13,14,15,16,17,18,19,20"
+          - "21,22,23,24,25,26,27,28,29,30"
+          - "31,32,33,34,35,36,37,38,39,40"
+          - "41,42,43,44,45,46,47,48,49,50,51,52"
 
     env:
-      # --- FILTROS PARA LA RECOPILACIÓN DIARIA ---
-      BOE_PROVINCIA: "ALL" 
+      # Asignamos la variable desde la matriz
+      BOE_PROVINCIA: ${{ matrix.provincias }}
       BOE_ESTADO: "EJ,PU"
       BOE_TIPO_BIEN: "I,V"
 
-      # --- NOMBRES DE FICHEROS INTERMEDIOS ---
-      LINKS_OUTPUT_FILE: "links_activos.jsonl"
-      INPUT_LINKS_JSONL: "links_activos.jsonl"
-      OUTPUT_DETAIL_JSONL: "subastas_detalle.jsonl"
+      LINKS_OUTPUT_FILE: "links_activos_${{ strategy.job-index }}.jsonl"
+      INPUT_LINKS_JSONL: "links_activos_${{ strategy.job-index }}.jsonl"
+      OUTPUT_DETAIL_JSONL: "subastas_detalle_${{ strategy.job-index }}.jsonl"
 
-      # --- CONFIGURACIÓN DE EJECUCIÓN ---
       HEADLESS: "1"
-      TEST_LIMIT: "0" # 0 para producción
-      
-      # --- OPTIMIZACIÓN DE RENDIMIENTO ---
-      # 6 es el punto dulce para los runners de GitHub (2 vCPU / 7GB RAM)
-      # Más de 6 podría saturar la CPU y causar timeouts.
-      MAX_CONCURRENCY: "6" 
-      NAV_TIMEOUT_MS: "60000" # 60s por página para evitar errores si la CPU va lenta
+      TEST_LIMIT: "0" 
+      MAX_CONCURRENCY: "4" # Reducido un poco para mayor estabilidad por runner
+      NAV_TIMEOUT_MS: "60000"
 
     steps:
       - name: 1. Checkout Code
@@ -46,8 +50,7 @@ jobs:
       - run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          # Instalar Playwright y sus dependencias de navegador
-          pip install playwright
+          pip install playwright playwright-stealth
           python -m playwright install --with-deps chromium
 
       - name: 3. Run Link Collector (script1.py)
@@ -55,13 +58,35 @@ jobs:
 
       - name: 4. Run Detail Scraper (script2.py)
         run: python script2.py
+        
+      # Subimos los artefactos de CADA job de la matriz
+      - name: 5. Upload Partial Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: scrape-results-${{ strategy.job-index }}
+          path: subastas_detalle_${{ strategy.job-index }}.jsonl
+          retention-days: 1
 
-      - name: 5. Compress results
+  # Nuevo job que recoge todos los ficheros parciales y los sube por FTP
+  merge_and_upload:
+    needs: scrape # Espera a que la matriz termine
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-results
+
+      - name: 2. Merge JSONL files
+        run: |
+          cat all-results/*/*.jsonl > subastas_detalle.jsonl
+          
+      - name: 3. Compress results
         run: |
           mkdir upload_dist
           gzip -c subastas_detalle.jsonl > upload_dist/subastas_detalle.jsonl.gz
 
-      - name: 6. Upload to FTP
+      - name: 4. Upload to FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_HOST }}
@@ -69,12 +94,3 @@ jobs:
           password: ${{ secrets.FTP_PASS }}
           server-dir: /public_ftp/subastas/
           local-dir: ./upload_dist/
-
-      - name: 7. (Opcional) Upload Artifacts for Debugging
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: scraper-artifacts-on-failure
-          path: |
-            *.jsonl
-            *.png

@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import os
-import time
+import random
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,6 +10,7 @@ from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import urljoin
 
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright_stealth import stealth_async
 
 # ---------------- CONFIG ----------------
 INPUT_LINKS_JSONL = os.getenv("INPUT_LINKS_JSONL", "links_subastas.jsonl")
@@ -329,9 +330,12 @@ def unique_tab_key(base: str, used: set) -> str:
 
 async def scrape_one(context, item_link: Dict[str, Any]) -> Dict[str, Any]:
     page = await context.new_page()
+    await stealth_async(page) # <-- Aplicar evasión por cada página que abrimos
     url = item_link["url"]
     try:
         await block_resources(page)
+        
+        await asyncio.sleep(random.uniform(0.5, 2.0)) # Pausa aleatoria antes de entrar al detalle
         await page.goto(url, timeout=NAV_TIMEOUT_MS, wait_until="domcontentloaded")
         
         raw_result: Dict[str, Any] = {
@@ -364,6 +368,7 @@ async def scrape_one(context, item_link: Dict[str, Any]) -> Dict[str, Any]:
                 tab_url = tab["url"]
                 
                 # Navegar a la pestaña principal
+                await asyncio.sleep(random.uniform(0.3, 1.2)) # Pausa entre pestañas
                 await page.goto(tab_url, timeout=NAV_TIMEOUT_MS, wait_until="domcontentloaded")
                 
                 # 2. Chequear si existe el contenedor de sub-tabs de lotes: <div id="tabsver"> <ul class="navlistver">
@@ -376,6 +381,7 @@ async def scrape_one(context, item_link: Dict[str, Any]) -> Dict[str, Any]:
                         sub_url = sub_tab["url"]
                         sub_name = sub_tab["name"]
                         
+                        await asyncio.sleep(random.uniform(0.3, 1.0)) # Pausa entre sublotes
                         await page.goto(sub_url, timeout=NAV_TIMEOUT_MS, wait_until="domcontentloaded")
                         
                         lote_info = await extract_lote_content(page)
