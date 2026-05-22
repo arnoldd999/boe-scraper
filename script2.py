@@ -10,7 +10,6 @@ from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import urljoin
 
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
-from playwright_stealth import stealth_async
 
 # ---------------- CONFIG ----------------
 INPUT_LINKS_JSONL = os.getenv("INPUT_LINKS_JSONL", "links_subastas.jsonl")
@@ -330,7 +329,7 @@ def unique_tab_key(base: str, used: set) -> str:
 
 async def scrape_one(context, item_link: Dict[str, Any]) -> Dict[str, Any]:
     page = await context.new_page()
-    await stealth_async(page) # <-- Aplicar evasión por cada página que abrimos
+    await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})") # <-- Aplicar evasión por cada página que abrimos
     url = item_link["url"]
     try:
         await block_resources(page)
