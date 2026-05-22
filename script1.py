@@ -212,7 +212,10 @@ async def main():
         browser = await p.chromium.launch(headless=CONFIG["HEADLESS"])
         context = await browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
         page = await context.new_page()
-        await stealth_async(page) # <-- EVASION DE SEGURIDAD
+        
+        # <-- EVASION DE SEGURIDAD
+        from playwright_stealth import stealth_async
+        await stealth_async(page)
 
         for provincia in CONFIG["PROVINCIAS"]:
             for tipo in CONFIG["TIPOS_BIEN"]:
