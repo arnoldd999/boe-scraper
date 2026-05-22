@@ -6,7 +6,6 @@ import random
 from urllib.parse import urljoin
 
 from playwright.async_api import async_playwright
-from playwright_stealth import stealth_async
 
 # --- CONFIGURACIÓN DE LOGGING ---
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -213,8 +212,7 @@ async def main():
         context = await browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
         page = await context.new_page()
         
-        # <-- EVASION DE SEGURIDAD
-        from playwright_stealth import stealth_async
+        from playwright_stealth.async_api import stealth_async
         await stealth_async(page)
 
         for provincia in CONFIG["PROVINCIAS"]:
