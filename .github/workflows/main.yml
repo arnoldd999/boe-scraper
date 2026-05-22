@@ -24,6 +24,9 @@ jobs:
           - "41,42,43,44,45,46,47,48,49,50,51,52"
 
     env:
+      # Fix node.js deprecation warning
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+      
       # Asignamos la variable desde la matriz
       BOE_PROVINCIA: ${{ matrix.provincias }}
       BOE_ESTADO: "EJ,PU"
@@ -66,6 +69,7 @@ jobs:
           name: scrape-results-${{ strategy.job-index }}
           path: subastas_detalle_${{ strategy.job-index }}.jsonl
           retention-days: 1
+          if-no-files-found: ignore # Evita que falle si no hay resultados para subir
 
   # Nuevo job que recoge todos los ficheros parciales y los sube por FTP
   merge_and_upload:
@@ -79,7 +83,13 @@ jobs:
 
       - name: 2. Merge JSONL files
         run: |
-          cat all-results/*/*.jsonl > subastas_detalle.jsonl
+          # Solo junta archivos si existen
+          if ls all-results/*/*.jsonl 1> /dev/null 2>&1; then
+            cat all-results/*/*.jsonl > subastas_detalle.jsonl
+          else
+            echo "No se encontraron ficheros para unir."
+            touch subastas_detalle.jsonl # Crea un archivo vacío para que no falle el gzip
+          fi
           
       - name: 3. Compress results
         run: |
